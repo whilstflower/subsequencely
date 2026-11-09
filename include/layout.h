@@ -10,15 +10,13 @@
 #include "voices.h"
 #include "util.h"
 
-/// The bits where row offset lives. Excludes the drum flag bit, so that
-/// the drums state doesn't get trashed when you use the row offset slider.
-#define ROW_OFFSET_MASK      (0x7F)
+/// The bits where row offset lives. Excludes the layout flag bits.
+#define ROW_OFFSET_MASK      (0x3F)
 
 typedef enum
 {
-    /// Indicates the layout should be 4x4 drum pad style. This flag lives in
-    /// the 8th bit of row_offset rather than its own flags variable because
-    /// ram, and row_offset is irrelevant in drum mode anyway.
+    /// Layout flags share row_offset because row offset is irrelevant in these modes.
+    LYT_CHORDS = 1 << 6,
     LYT_DRUMS = 1 << 7
 } LayoutFlags;
 
@@ -50,11 +48,13 @@ void layout_init(Layout* l);
 uint8_t layout_is_root_note(Layout* l, uint8_t note_number);
 
 uint8_t layout_get_note_number(Layout* l, uint8_t index);
+uint8_t layout_get_pad_notes(Layout* l, uint8_t index, int8_t notes[3]);
 
 /// Calculate which pads play which notes.
 void layout_assign_pads(Layout* l);
 void layout_assign_scale(Layout* l);
 void layout_assign_drums(Layout* l);
+void layout_assign_chords(Layout* l);
 
 void layout_become_active(Layout* l);
 void layout_become_inactive(Layout* l);
@@ -69,6 +69,7 @@ void layout_toggle_note(Layout* l, uint8_t note);
 void layout_draw(Layout* l);
 void layout_draw_scale(Layout* l);
 void layout_draw_drums(Layout* l);
+void layout_draw_chords(Layout* l);
 
 /// Increases or decreases the root note by a half step.
 void layout_transpose(Layout* l, int8_t direction);

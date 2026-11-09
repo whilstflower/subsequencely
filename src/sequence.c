@@ -644,35 +644,51 @@ uint8_t sequence_handle_press(Sequence* s, uint8_t index, uint8_t value)
         return 1;
     }
 
-    int8_t note_number = layout_get_note_number(&s->layout, index);
+    int8_t note_numbers[3];
+    uint8_t num_notes = layout_get_pad_notes(&s->layout, index, note_numbers);
 
-    if (note_number > -1)
+    if (num_notes > 0)
     {
-        uint8_t channel = sequence_get_channel(s, note_number);
-        Note* n;
-
         if (value > 0)
         {
-            n = voices_add(&lp_voices, note_number, value);
-
             if (!flag_is_set(lp_flags, LP_IS_ARP))
             {
                 Note* current_n = sequence_get_note(s, s->playhead);
                 sequence_kill_note(s, current_n);
-                note_play(n, channel,
-                          flag_is_set(s->flags, SEQ_FULL_VELOCITY));
-                layout_light_note(&s->layout, note_number, 1);
+            }
 
-                sequence_handle_record(s, 1);
+            for (uint8_t i = 0; i < num_notes; i++)
+            {
+                int8_t note_number = note_numbers[i];
+                uint8_t channel = sequence_get_channel(s, note_number);
+                Note* n = voices_add(&lp_voices, note_number, value);
+
+                if (!flag_is_set(lp_flags, LP_IS_ARP))
+                {
+                    note_play(n, channel,
+                              flag_is_set(s->flags, SEQ_FULL_VELOCITY));
+                    layout_light_note(&s->layout, note_number, 1);
+
+                    if (i == 0)
+                    {
+                        sequence_handle_record(s, 1);
+                    }
+                }
             }
         }
-        else if (!voices_is_sustained(&lp_voices, note_number))
+        else
         {
-            n = voices_remove(&lp_voices, note_number);
-            note_kill(n, channel);
-            layout_light_note(&s->layout, note_number, 0);
+            for (uint8_t i = 0; i < num_notes; i++)
+            {
+                int8_t note_number = note_numbers[i];
+                if (!voices_is_sustained(&lp_voices, note_number))
+                {
+                    Note* n = voices_remove(&lp_voices, note_number);
+                    note_kill(n, sequence_get_channel(s, note_number));
+                    layout_light_note(&s->layout, note_number, 0);
+                }
+            }
         }
-
     }
     else if (index == LP_SHIFT)
     {
@@ -725,7 +741,8 @@ uint8_t sequence_handle_press(Sequence* s, uint8_t index, uint8_t value)
 
 uint8_t sequence_handle_aftertouch(Sequence* s, uint8_t index, int8_t value)
 {
-    int8_t note_number = -1;
+    int8_t note_numbers[3] = {-1, -1, -1};
+    uint8_t num_notes = 0;
 
     if (flag_is_set(s->flags, SEQ_MOD_WHEEL))
     {
@@ -750,19 +767,27 @@ uint8_t sequence_handle_aftertouch(Sequence* s, uint8_t index, int8_t value)
         }
         else
         {
-            note_number = layout_get_note_number(&s->layout, index);
+            num_notes = layout_get_pad_notes(&s->layout, index, note_numbers);
         }
     }
     else
     {
-        note_number = layout_get_note_number(&s->layout, index);
+        num_notes = layout_get_pad_notes(&s->layout, index, note_numbers);
     }
 
-    voices_handle_aftertouch(&lp_voices, note_number, value);
+    if (num_notes == 0)
+    {
+        num_notes = 1;
+    }
+
+    for (uint8_t i = 0; i < num_notes; i++)
+    {
+        voices_handle_aftertouch(&lp_voices, note_numbers[i], value);
+    }
 
     if (flag_is_set(s->flags, SEQ_RECORD_CONTROL))
     {
-        sequence_send_aftertouch(s, note_number, value);
+        sequence_send_aftertouch(s, note_numbers[0], value);
     }
 
     return 1;

@@ -6,7 +6,7 @@
 #include "note.h"
 #include "util.h"
 
-#define NUM_VOICES          (GRID_SIZE)
+#define NUM_VOICES          (3 * GRID_SIZE)
 
 /// Voices manages keeping track of which notes are being held down, so that
 /// when one is released, the next most recent one can take over, and so that

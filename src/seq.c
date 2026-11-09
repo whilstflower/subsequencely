@@ -368,6 +368,11 @@ void notes_setup_draw()
 
     checkbox_draw(s->flags, SEQ_RECORD_CONTROL, CONTROL_CHECKBOX_POS);
     checkbox_draw(l->row_offset, LYT_DRUMS, DRUM_CHECKBOX_POS);
+    plot_pad(NOTES_LAYOUT_CHECKBOX_POS,
+             flag_is_set(l->row_offset, LYT_DRUMS | LYT_CHORDS)
+                 ? CHECKBOX_OFF_COLOR
+                 : CHECKBOX_ON_COLOR);
+    checkbox_draw(l->row_offset, LYT_CHORDS, CHORD_LAYOUT_CHECKBOX_POS);
     checkbox_draw(s->flags, SEQ_DRUM_MULTICHANNEL, MULTICHANNEL_CHECKBOX_POS);
     checkbox_draw(s->flags, SEQ_FULL_VELOCITY, VELOCITY_CHECKBOX_POS);
     checkbox_draw(s->flags, SEQ_MOD_WHEEL, MOD_WHEEL_CHECKBOX_POS);
@@ -448,11 +453,25 @@ uint8_t notes_setup_handle_press(uint8_t index, uint8_t value)
     {
 
     }
-    else if (checkbox_handle_press(
-                 l->row_offset, LYT_DRUMS,
-                 index, value, DRUM_CHECKBOX_POS))
+    else if ((index == DRUM_CHECKBOX_POS
+              || index == NOTES_LAYOUT_CHECKBOX_POS
+              || index == CHORD_LAYOUT_CHECKBOX_POS)
+             && value > 0)
     {
-        layout_set_drums(l);
+        uint8_t selected_layout = index == DRUM_CHECKBOX_POS
+            ? LYT_DRUMS
+            : index == CHORD_LAYOUT_CHECKBOX_POS
+                ? LYT_CHORDS
+                : 0;
+        uint8_t current_layout = l->row_offset & (LYT_DRUMS | LYT_CHORDS);
+
+        if (current_layout != selected_layout)
+        {
+            sequence_kill_voices(s, 0);
+            l->row_offset = clear_flag(l->row_offset, LYT_DRUMS | LYT_CHORDS);
+            l->row_offset = set_flag(l->row_offset, selected_layout);
+            layout_assign_pads(l);
+        }
     }
     else if (index == MULTICHANNEL_CHECKBOX_POS)
     {

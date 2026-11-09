@@ -6,6 +6,85 @@
 #define DRUM_RANGE    (4 * NUM_NOTES + (16 - NUM_NOTES))
 #define DRUM_SIZE     (GRID_SIZE / 2)
 
+static const uint8_t chord_map[5][5] = {
+    {0, 4, 14, 11, 16},
+    {0, 4, 10, 7, 12},
+    {0, 4, 9, 6, 11},
+    {0, 4, 8, 5, 10},
+    {0, 4, 7, 3, 6}
+};
+
+static int16_t layout_chord_note(Layout* l, uint8_t x, uint8_t y)
+{
+    uint8_t scale_length = lp_scale.num_notes;
+    uint8_t map_row = scale_length > 8 ? 0 : 9 - scale_length;
+    if (map_row > 4)
+    {
+        map_row = 4;
+    }
+
+    uint16_t scale_index = l->octave * scale_length + x
+        + chord_map[map_row][y];
+    return NUM_NOTES * (scale_index / scale_length)
+        + lp_scale.offsets[scale_index % scale_length]
+        + l->root_note;
+}
+
+static uint8_t layout_chord_triad(Layout* l, uint8_t x, int8_t notes[3])
+{
+    int16_t base = layout_chord_note(l, 0, 0) + NUM_NOTES;
+    int16_t triad[3] = {
+        layout_chord_note(l, x, 0) + NUM_NOTES,
+        layout_chord_note(l, x, 2),
+        layout_chord_note(l, x, 1) + NUM_NOTES
+    };
+
+    for (uint8_t i = 1; i < 3; i++)
+    {
+        while (triad[i] >= base + NUM_NOTES)
+        {
+            triad[i] -= NUM_NOTES;
+        }
+    }
+
+    for (uint8_t i = 0; i < 3; i++)
+    {
+        if (triad[i] < 0 || triad[i] > MAX_NOTE)
+        {
+            return 0;
+        }
+        notes[i] = triad[i];
+    }
+
+    return 3;
+}
+
+static const uint8_t* layout_chord_pad_color(Layout* l, uint8_t x, uint8_t y)
+{
+    if (y == 5)
+    {
+        return number_colors[3];
+    }
+    else if (y >= 5)
+    {
+        return off_color;
+    }
+
+    int16_t root = layout_chord_note(l, x, 0);
+    int16_t third = layout_chord_note(l, x, 1);
+    int16_t fifth = layout_chord_note(l, x, 2);
+    uint8_t third_interval = (third - root + 12) % 12;
+    uint8_t fifth_interval = (fifth - root + 12) % 12;
+    uint8_t quality = third_interval == 4 && fifth_interval == 7
+        ? 0
+        : third_interval == 3 && fifth_interval == 7
+            ? 1
+            : third_interval == 3 && fifth_interval == 6
+                ? 2
+                : 3;
+    return drum_colors[quality];
+}
+
 void layout_init(Layout* l)
 {
     l->root_note = 0;
@@ -53,15 +132,62 @@ uint8_t layout_get_note_number(Layout* l, uint8_t index)
     return lp_pad_notes[y][x];
 }
 
+uint8_t layout_get_pad_notes(Layout* l, uint8_t index, int8_t notes[3])
+{
+    uint8_t x, y;
+    if (!index_to_pad(index, &x, &y))
+    {
+        return 0;
+    }
+
+    if (flag_is_set(l->row_offset, LYT_CHORDS))
+    {
+        if (y == 5)
+        {
+            return layout_chord_triad(l, x, notes);
+        }
+        else if (y >= 5)
+        {
+            return 0;
+        }
+    }
+
+    int8_t note_number = lp_pad_notes[y][x];
+    if (note_number < 0)
+    {
+        return 0;
+    }
+
+    notes[0] = note_number;
+    return 1;
+}
+
 void layout_assign_pads(Layout* l)
 {
     if (flag_is_set(l->row_offset, LYT_DRUMS))
     {
         layout_assign_drums(l);
     }
+    else if (flag_is_set(l->row_offset, LYT_CHORDS))
+    {
+        layout_assign_chords(l);
+    }
     else
     {
         layout_assign_scale(l);
+    }
+}
+
+void layout_assign_chords(Layout* l)
+{
+    for (uint8_t y = 0; y < GRID_SIZE; y++)
+    {
+        for (uint8_t x = 0; x < GRID_SIZE; x++)
+        {
+            lp_pad_notes[y][x] = y < 5
+                ? (int8_t)layout_chord_note(l, x, y)
+                : -1;
+        }
     }
 }
 
@@ -145,6 +271,38 @@ void layout_light_note(Layout* l, uint8_t note_number, uint8_t on)
     if (flag_is_set(l->row_offset, LYT_DRUMS))
     {
         layout_light_drums(l, note_number, on);
+    }
+    else if (flag_is_set(l->row_offset, LYT_CHORDS))
+    {
+        for (uint8_t y = 0; y < 6; y++)
+        {
+            for (uint8_t x = 0; x < GRID_SIZE; x++)
+            {
+                uint8_t match = 0;
+                if (y == 5)
+                {
+                    int8_t chord_notes[3];
+                    if (layout_chord_triad(l, x, chord_notes))
+                    {
+                        for (uint8_t i = 0; i < 3; i++)
+                        {
+                            match |= chord_notes[i] == note_number;
+                        }
+                    }
+                }
+                else
+                {
+                    match = lp_pad_notes[y][x] == note_number;
+                }
+
+                if (match)
+                {
+                    plot_pad(coord_to_index(x, y),
+                             on ? on_color
+                                : layout_chord_pad_color(l, x, y));
+                }
+            }
+        }
     }
     else
     {
@@ -280,6 +438,10 @@ void layout_draw(Layout* l)
     {
         layout_draw_drums(l);
     }
+    else if (flag_is_set(l->row_offset, LYT_CHORDS))
+    {
+        layout_draw_chords(l);
+    }
     else
     {
         layout_draw_scale(l);
@@ -352,5 +514,16 @@ void layout_draw_drums(Layout* l)
         }
 
         index += ROW_GAP;
+    }
+}
+
+void layout_draw_chords(Layout* l)
+{
+    for (uint8_t y = 0; y < GRID_SIZE; y++)
+    {
+        for (uint8_t x = 0; x < GRID_SIZE; x++)
+        {
+            plot_pad(coord_to_index(x, y), layout_chord_pad_color(l, x, y));
+        }
     }
 }
